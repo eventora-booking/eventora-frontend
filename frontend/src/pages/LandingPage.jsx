@@ -1,42 +1,40 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, Users, Ticket, Search, ArrowRight, Sparkles, MapPin, Star, ChevronRight, Loader, Clock, Tag, Mail, CheckCircle, Home, Settings, LogOut, User, BarChart, CalendarDays, CreditCard, FileText, Download, Bell, Menu, X, Trash2, Plus, Edit, Shield } from 'lucide-react';
 import SeatSelection from '../components/SeatSelection';
+import { authAPI, eventsAPI as eventsAPIService, usersAPI, bookingsAPI as bookingsAPIService } from '../services/api';
 
 const GOOGLE_CLIENT_ID = import.meta?.env?.VITE_GOOGLE_CLIENT_ID || '818746544645-tik4d3p74emie41cuhtk5tctv4ftnrbr.apps.googleusercontent.com';
 
-// API Base URL - Uses environment variable in production
+// API Base URL - Uses environment variable in production (for direct fetch calls that can't use axios)
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// API Services
+// Local helper functions using centralized API service
 const eventsAPI = {
   getEventById: async (eventId) => {
     try {
-      const response = await fetch(`${API_BASE}/events/${eventId}`);
-      const data = await response.json();
-      return { success: response.ok, data: data.data || data };
+      const data = await eventsAPIService.getEventById(eventId);
+      return { success: true, data: data.data || data };
     } catch (error) {
       console.error('Error fetching event:', error);
-      return { success: false, message: error.message };
+      return { success: false, message: error.response?.data?.message || error.message };
     }
   },
   getLocations: async () => {
     try {
-      const response = await fetch(`${API_BASE}/events/locations`);
-      const data = await response.json();
-      return { success: response.ok, data: data.data || [] };
+      const data = await eventsAPIService.getLocations();
+      return { success: true, data: data.data || [] };
     } catch (error) {
       console.error('Error fetching locations:', error);
-      return { success: false, message: error.message };
+      return { success: false, message: error.response?.data?.message || error.message };
     }
   },
   getSeatAvailability: async (eventId) => {
     try {
-      const response = await fetch(`${API_BASE}/events/${eventId}/seats`);
-      const data = await response.json();
-      return { success: response.ok, data: data.data || [] };
+      const data = await eventsAPIService.getSeatAvailability(eventId);
+      return { success: true, data: data.data || data };
     } catch (error) {
       console.error('Error fetching seat availability:', error);
-      return { success: false, message: error.message };
+      return { success: false, message: error.response?.data?.message || error.message };
     }
   }
 };
@@ -44,20 +42,11 @@ const eventsAPI = {
 const bookingsAPI = {
   createBooking: async (bookingData) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/bookings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(bookingData)
-      });
-      const data = await response.json();
-      return { success: response.ok, data: data.data || data };
+      const data = await bookingsAPIService.createBooking(bookingData);
+      return { success: data.success !== false, data: data.data || data };
     } catch (error) {
       console.error('Error creating booking:', error);
-      return { success: false, message: error.message };
+      return { success: false, message: error.response?.data?.message || error.message };
     }
   }
 };
@@ -398,19 +387,7 @@ const DashboardPage = () => {
         throw new Error('Authentication token not found. Please login again.');
       }
       
-      const response = await fetch(`${API_BASE_URL}/users/profile`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch user profile');
-      }
-      
-      const data = await response.json();
+      const data = await usersAPI.getProfile();
       const profile = data.data || data;
       setUserProfile({
         name: profile?.name || 'User',
@@ -432,7 +409,8 @@ const DashboardPage = () => {
       });
       
       // If unauthorized, redirect to login
-      if (err.message?.includes('401') || err.message?.includes('token') || err.message?.includes('authorized')) {
+      if (err.response?.status === 401 || err.message?.includes('401') || err.message?.includes('token') || err.message?.includes('authorized')) {
+        localStorage.removeItem('token');
         setTimeout(() => {
           window.location.hash = '#/login';
         }, 2000);
@@ -450,28 +428,17 @@ const DashboardPage = () => {
         throw new Error('Authentication token not found. Please login again.');
       }
       
-      const response = await fetch(`${API_BASE_URL}/bookings/my-bookings`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch user events');
-      }
-      
-      const data = await response.json();
+      const data = await bookingsAPIService.getMyBookings();
       setUserEvents(data.data || []);
       setLoading(false);
     } catch (err) {
       console.error('Error fetching user events:', err);
-      setError(err.message || 'Failed to load your bookings. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Failed to load your bookings. Please try again.');
       setLoading(false);
       
       // If unauthorized, redirect to login
-      if (err.message?.includes('401') || err.message?.includes('token') || err.message?.includes('authorized')) {
+      if (err.response?.status === 401 || err.message?.includes('401') || err.message?.includes('token') || err.message?.includes('authorized')) {
+        localStorage.removeItem('token');
         setTimeout(() => {
           window.location.hash = '#/login';
         }, 2000);
@@ -542,42 +509,33 @@ const DashboardPage = () => {
     try {
       setProfileSaving(true);
 
-      const response = await fetch(`${API_BASE_URL}/users/profile`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: userProfile.name.trim(),
-          email: userProfile.email.trim(),
-          phone: userProfile.phone || '',
-          address: userProfile.address || '',
-          avatar: userProfile.avatar || ''
-        })
+      const data = await usersAPI.updateProfile({
+        name: userProfile.name.trim(),
+        email: userProfile.email.trim(),
+        phone: userProfile.phone || '',
+        address: userProfile.address || '',
+        avatar: userProfile.avatar || ''
       });
 
-      const data = await response.json();
+      if (data.success !== false) {
+        const updatedProfile = data.data || {};
+        setUserProfile((prev) => ({
+          ...prev,
+          name: updatedProfile.name ?? prev.name,
+          email: updatedProfile.email ?? prev.email,
+          phone: updatedProfile.phone ?? prev.phone,
+          address: updatedProfile.address ?? prev.address,
+          avatar: updatedProfile.avatar ?? prev.avatar,
+          avatarPreview: updatedProfile.avatar ?? prev.avatarPreview
+        }));
 
-      if (!response.ok) {
+        alert('Profile updated successfully.');
+      } else {
         throw new Error(data.message || 'Failed to update profile.');
       }
-
-      const updatedProfile = data.data || {};
-      setUserProfile((prev) => ({
-        ...prev,
-        name: updatedProfile.name ?? prev.name,
-        email: updatedProfile.email ?? prev.email,
-        phone: updatedProfile.phone ?? prev.phone,
-        address: updatedProfile.address ?? prev.address,
-        avatar: updatedProfile.avatar ?? prev.avatar,
-        avatarPreview: updatedProfile.avatar ?? prev.avatarPreview
-      }));
-
-      alert('Profile updated successfully.');
     } catch (err) {
       console.error('Error updating profile:', err);
-      alert(err.message || 'Unable to update profile right now.');
+      alert(err.response?.data?.message || err.message || 'Unable to update profile right now.');
     } finally {
       setProfileSaving(false);
     }
@@ -609,65 +567,41 @@ const DashboardPage = () => {
       setAccountActionLoading(action);
 
       if (action === 'export') {
-        const response = await fetch(`${API_BASE_URL}/users/export`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        const data = await usersAPI.exportData();
 
-        const data = await response.json();
-
-        if (!response.ok) {
+        if (data.success !== false) {
+          const payload = data.data || data;
+          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'eventora-user-data.json';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          alert('Your data export has started downloading.');
+        } else {
           throw new Error(data.message || 'Failed to export data.');
         }
-
-        const payload = data.data || data;
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'eventora-user-data.json';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        alert('Your data export has started downloading.');
       } else if (action === 'deactivate') {
-        const response = await fetch(`${API_BASE_URL}/users/account/deactivate`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        const data = await usersAPI.deactivateAccount();
 
-        const data = await response.json();
-
-        if (!response.ok) {
+        if (data.success !== false) {
+          alert('Account deactivated. You will now be logged out.');
+          handleLogout();
+        } else {
           throw new Error(data.message || 'Failed to deactivate account.');
         }
-
-        alert('Account deactivated. You will now be logged out.');
-        handleLogout();
       } else if (action === 'delete') {
-        const response = await fetch(`${API_BASE_URL}/users/account`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        const data = await usersAPI.deleteAccount();
 
-        const data = await response.json();
-
-        if (!response.ok) {
+        if (data.success !== false) {
+          alert('Account deleted successfully.');
+          handleLogout();
+        } else {
           throw new Error(data.message || 'Failed to delete account.');
         }
-
-        alert('Account deleted successfully.');
-        handleLogout();
       }
     } catch (err) {
       console.error('Account action error:', err);
@@ -694,28 +628,20 @@ const DashboardPage = () => {
     try {
       setCancellingBookingId(bookingId);
 
-      const response = await fetch(`${API_BASE_URL}/bookings/${bookingId}/cancel`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+      const data = await bookingsAPIService.cancelBooking(bookingId);
+
+      if (data.success !== false) {
+        alert('Booking cancelled successfully.');
+        if (selectedBooking && (selectedBooking._id || selectedBooking.id) === bookingId) {
+          setSelectedBooking(null);
         }
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
+        fetchUserEvents();
+      } else {
         throw new Error(data.message || 'Failed to cancel booking.');
       }
-
-      alert('Booking cancelled successfully.');
-      if (selectedBooking && (selectedBooking._id || selectedBooking.id) === bookingId) {
-        setSelectedBooking(null);
-      }
-      fetchUserEvents();
     } catch (err) {
       console.error('Error cancelling booking:', err);
-      alert(err.message || 'Error cancelling booking. Please try again.');
+      alert(err.response?.data?.message || err.message || 'Error cancelling booking. Please try again.');
     } finally {
       setCancellingBookingId(null);
     }
@@ -1775,21 +1701,24 @@ const EventsPage = () => {
   };
 
   const fetchUpcomingEventsFromAPI = async (limit = 60) => {
-    const response = await fetch(`${API_BASE_URL}/events/upcoming?limit=${limit}`);
-    if (!response.ok) throw new Error('Failed to fetch events');
-    const data = await response.json();
-    const eventsList = data.data || data;
-    return applyEventsToState(eventsList);
+    try {
+      const data = await eventsAPIService.getUpcomingEvents();
+      const eventsList = data.data || data;
+      return applyEventsToState(eventsList);
+    } catch (err) {
+      console.error('Error fetching upcoming events:', err);
+      throw new Error(err.response?.data?.message || err.message || 'Failed to fetch events');
+    }
   };
 
   const refreshLocationsFromAPI = async () => {
     try {
-      const locationsResponse = await eventsAPI.getLocations();
-      if (locationsResponse.success && locationsResponse.data) {
+      const locationsResponse = await eventsAPIService.getLocations();
+      if (locationsResponse.success !== false && locationsResponse.data) {
         setLocations((prev) => {
           const merged = new Set([
             ...(prev || []),
-            ...locationsResponse.data.filter(Boolean),
+            ...(locationsResponse.data || []).filter(Boolean),
           ]);
           return Array.from(merged).sort((a, b) => a.localeCompare(b));
         });
@@ -1817,8 +1746,8 @@ const EventsPage = () => {
     }
 
     try {
-      const syncResponse = await fetch(`${API_BASE_URL}/events/live/sync?limit=80`);
-      if (syncResponse.ok) {
+      const syncData = await eventsAPIService.syncLiveEvents(null, 80);
+      if (syncData.success !== false) {
         await fetchUpcomingEventsFromAPI(60);
         await refreshLocationsFromAPI();
       } else {
@@ -1835,10 +1764,8 @@ const EventsPage = () => {
     try {
       setLoading(true);
       setError(null);
-      // Fetch only upcoming events
-      const response = await fetch(`${API_BASE_URL}/events/upcoming`);
-      if (!response.ok) throw new Error('Failed to fetch events');
-      const data = await response.json();
+      // Fetch only upcoming events using centralized API service
+      const data = await eventsAPIService.getUpcomingEvents();
       const eventsList = data.data || data;
       
       // Filter to only show upcoming events (future dates)
@@ -1860,7 +1787,7 @@ const EventsPage = () => {
       setLoading(false);
     } catch (err) {
       console.error('Error fetching events:', err);
-      setError(err.message);
+      setError(err.response?.data?.message || err.message || 'Failed to fetch events');
       setLoading(false);
     }
   };
@@ -2835,41 +2762,25 @@ const PaymentPage = () => {
       }
 
       // Create booking first
-      const bookingResponse = await fetch(`${API_BASE_URL}/bookings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          eventId: bookingDetails.eventId,
-          numberOfTickets: bookingDetails.numberOfTickets,
-          paymentMethod: 'card'
-        })
+      const bookingData = await bookingsAPIService.createBooking({
+        eventId: bookingDetails.eventId,
+        numberOfTickets: bookingDetails.numberOfTickets,
+        paymentMethod: 'card'
       });
 
-      if (!bookingResponse.ok) {
-        const errorData = await bookingResponse.json();
-        throw new Error(errorData.message || 'Failed to create booking');
+      if (bookingData.success === false) {
+        throw new Error(bookingData.message || 'Failed to create booking');
       }
 
-      const bookingData = await bookingResponse.json();
-      const bookingId = bookingData.data._id;
+      const bookingId = bookingData.data?._id || bookingData.data?.id;
 
-      // Update payment status to paid (dummy payment)
-      const paymentResponse = await fetch(`${API_BASE_URL}/bookings/${bookingId}/payment`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          paymentStatus: 'paid'
-        })
+      // Process payment
+      const paymentData = await bookingsAPIService.processPayment(bookingId, {
+        paymentStatus: 'paid'
       });
 
-      if (!paymentResponse.ok) {
-        throw new Error('Payment processing failed');
+      if (paymentData.success === false) {
+        throw new Error(paymentData.message || 'Payment processing failed');
       }
 
       // Clear booking details from session
@@ -3541,18 +3452,9 @@ const LoginPage = () => {
       setLoading(true);
       setError('');
 
-      const res = await fetch(`${API_BASE}/auth/google`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ tokenId: response.credential })
-      });
+      const data = await authAPI.googleLogin(response.credential);
 
-      const data = await res.json();
-
-      if (res.ok) {
-        localStorage.setItem('token', data.token);
+      if (data.token) {
         // Post-login redirect handling
         const postLogin = localStorage.getItem('postLoginRedirect');
         if (postLogin) {
@@ -3572,7 +3474,7 @@ const LoginPage = () => {
         setError(data.message || 'Google login failed');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Network error. Please try again.');
       console.error('Google login error:', err);
     } finally {
       setLoading(false);
@@ -3719,18 +3621,9 @@ const LoginPage = () => {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem('token', data.token);
+      const data = await authAPI.login(formData);
+      
+      if (data.token) {
         // Post-login redirect handling
         const postLogin = localStorage.getItem('postLoginRedirect');
         if (postLogin) {
@@ -3750,7 +3643,7 @@ const LoginPage = () => {
         setError(data.message || 'Login failed');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Network error. Please try again.');
       console.error('Login error:', err);
     } finally {
       setLoading(false);
@@ -3897,21 +3790,13 @@ const SignUpPage = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          password: formData.password
-        })
+      const data = await authAPI.signup({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password
       });
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (data.token) {
         // Store token and redirect to OTP verification
         localStorage.setItem('token', data.token);
         localStorage.setItem('userEmail', formData.email);
@@ -3920,7 +3805,7 @@ const SignUpPage = () => {
         setError(data.message || 'Registration failed');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Network error. Please try again.');
       console.error('Registration error:', err);
     } finally {
       setLoading(false);
@@ -4086,24 +3971,11 @@ const OTPVerificationPage = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
       const email = localStorage.getItem('userEmail');
       
-      const response = await fetch(`${API_BASE}/auth/verify-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          email,
-          otp: otpValue
-        })
-      });
+      const data = await authAPI.verifyOTP(email, otpValue);
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (data.success !== false) {
         setSuccess(true);
         setTimeout(() => {
           window.location.hash = '#/dashboard';
@@ -4112,7 +3984,7 @@ const OTPVerificationPage = () => {
         setError(data.message || 'OTP verification failed');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Network error. Please try again.');
       console.error('OTP verification error:', err);
     } finally {
       setLoading(false);
@@ -4121,21 +3993,11 @@ const OTPVerificationPage = () => {
 
   const handleResend = async () => {
     try {
-      const token = localStorage.getItem('token');
       const email = localStorage.getItem('userEmail');
       
-      const response = await fetch(`${API_BASE}/auth/resend-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ email })
-      });
+      const data = await authAPI.resendOTP(email);
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (data.success !== false) {
         setError('');
         // Show success message
         const successMsg = document.createElement('div');
@@ -4252,23 +4114,15 @@ const ForgotPasswordPage = () => {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE}/auth/forgot-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email })
-      });
+      const data = await authAPI.forgotPassword(email);
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (data.success !== false) {
         setSuccess(true);
       } else {
         setError(data.message || 'Failed to send reset email');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Network error. Please try again.');
       console.error('Forgot password error:', err);
     } finally {
       setLoading(false);
@@ -4388,14 +4242,8 @@ const AdminPage = () => {
 
   const checkAdminAccess = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/users/profile`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      const data = await response.json();
-      if (response.ok && data.data && data.data.role === 'admin') {
+      const profileData = await usersAPI.getProfile();
+      if (profileData.data && profileData.data.role === 'admin') {
         setIsAuthenticated(true);
         setUserRole('admin');
         fetchEvents();
@@ -4403,11 +4251,14 @@ const AdminPage = () => {
         setIsAuthenticated(false);
         setUserRole(null);
         localStorage.removeItem('token');
+        setLoginError('Access denied. Admin role required.');
       }
     } catch (err) {
       console.error('Error checking admin access:', err);
       setIsAuthenticated(false);
       setUserRole(null);
+      localStorage.removeItem('token');
+      setLoginError('Failed to verify admin access. Please try again.');
     }
   };
 
@@ -4427,24 +4278,33 @@ const AdminPage = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(loginData)
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem('token', data.token);
+      const data = await authAPI.login(loginData);
+      
+      if (data.token) {
         await checkAdminAccess();
       } else {
-        setLoginError(data.message || 'Login failed');
+        // More detailed error messages
+        if (data.message?.includes('not found')) {
+          setLoginError('Admin user not found. Please run: npm run create-admin in backend folder');
+        } else if (data.message?.includes('not verified')) {
+          setLoginError('Email not verified. Please verify your email first or update user in database.');
+        } else {
+          setLoginError(data.message || 'Login failed. Check if user exists and has admin role.');
+        }
       }
     } catch (err) {
-      setLoginError('Network error. Please try again.');
+      const errorMsg = err.response?.data?.message || err.message || 'Network error. Please try again.';
+      
+      // More helpful error messages
+      if (errorMsg.includes('not found')) {
+        setLoginError('Admin user not found in database. Please create admin user first. See FIX_ADMIN_LOGIN.md for instructions.');
+      } else if (errorMsg.includes('not verified')) {
+        setLoginError('Email not verified. Update user in MongoDB: set isVerified to true.');
+      } else if (errorMsg.includes('Invalid credentials')) {
+        setLoginError('Password incorrect. Please check password or reset it in database.');
+      } else {
+        setLoginError(errorMsg);
+      }
       console.error('Login error:', err);
     } finally {
       setLoginLoading(false);
@@ -4454,16 +4314,16 @@ const AdminPage = () => {
   const fetchEvents = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/events`);
-      const data = await response.json();
-      if (response.ok) {
+      setError('');
+      const data = await eventsAPIService.getAllEvents();
+      if (data.success !== false) {
         setEvents(data.data || []);
       } else {
-        setError('Failed to fetch events');
+        setError(data.message || 'Failed to fetch events');
       }
     } catch (err) {
       console.error('Error fetching events:', err);
-      setError('Failed to load events');
+      setError(err.response?.data?.message || err.message || 'Failed to load events');
     } finally {
       setLoading(false);
     }
@@ -4476,22 +4336,13 @@ const AdminPage = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/events`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          ...formData,
-          price: parseFloat(formData.price) || 0,
-          totalSeats: parseInt(formData.totalSeats) || 100
-        })
+      const data = await eventsAPIService.createEvent({
+        ...formData,
+        price: parseFloat(formData.price) || 0,
+        totalSeats: parseInt(formData.totalSeats) || 100
       });
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (data.success !== false) {
         setShowAddForm(false);
         setFormData({
           title: '',
@@ -4524,17 +4375,9 @@ const AdminPage = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/events/${eventId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const data = await eventsAPIService.deleteEvent(eventId);
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (data.success !== false) {
         fetchEvents();
         alert('Event deleted successfully!');
       } else {
@@ -4542,7 +4385,7 @@ const AdminPage = () => {
       }
     } catch (err) {
       console.error('Error deleting event:', err);
-      alert('Failed to delete event');
+      alert(err.response?.data?.message || err.message || 'Failed to delete event');
     }
   };
 
