@@ -3774,6 +3774,7 @@ const SignUpPage = () => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -3801,37 +3802,44 @@ const SignUpPage = () => {
 
       // Backend returns success and requiresVerification for OTP flow
       // Token is only returned after OTP verification
-      // If signup succeeds (no error thrown), redirect to OTP verification
-      if (data.success !== false) {
+      // If signup succeeds and requires verification, redirect to OTP verification
+      if (data && (data.success !== false)) {
         // Store email for OTP verification
         localStorage.setItem('userEmail', formData.email);
         
         // Show success message
         setError('');
-        const successDiv = document.createElement('div');
-        successDiv.className = 'fixed top-4 right-4 bg-green-500/20 border border-green-500/50 rounded-lg p-4 text-green-400 z-50 animate-fade-in';
-        successDiv.innerHTML = `
-          <div class="flex items-center gap-2">
-            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-            </svg>
-            <span>Account created! Redirecting to OTP verification...</span>
-          </div>
-        `;
-        document.body.appendChild(successDiv);
+        setSuccess(true);
+        setLoading(false);
         
-        // Redirect to OTP verification page
+        // Redirect to OTP verification page immediately
+        window.location.hash = '#/verify-otp';
+        
+        // Fallback: ensure navigation happens even if hash change doesn't trigger
         setTimeout(() => {
-          if (document.body.contains(successDiv)) {
-            document.body.removeChild(successDiv);
+          if (window.location.hash !== '#/verify-otp') {
+            window.location.hash = '#/verify-otp';
+            // Force router update
+            window.dispatchEvent(new HashChangeEvent('hashchange'));
           }
-          window.location.hash = '#/verify-otp';
-        }, 1500);
+        }, 500);
       } else {
-        setError(data.message || 'Registration failed');
+        setError(data?.message || 'Registration failed');
         setLoading(false);
       }
     } catch (err) {
+      // Check if error is actually a success response that requires verification
+      if (err.response?.status === 200 || err.response?.status === 201) {
+        const data = err.response?.data;
+        if (data && (data.success !== false || data.requiresVerification)) {
+          localStorage.setItem('userEmail', formData.email);
+          setError('');
+          setSuccess(true);
+          setLoading(false);
+          window.location.hash = '#/verify-otp';
+          return;
+        }
+      }
       setError(err.response?.data?.message || err.message || 'Network error. Please try again.');
       console.error('Registration error:', err);
       setLoading(false);
@@ -3858,12 +3866,25 @@ const SignUpPage = () => {
         </div>
 
         <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
-          {error && (
+          {success && (
+            <div className="mb-6 p-4 bg-green-500/20 border border-green-500/50 rounded-lg">
+              <p className="text-green-400 text-sm mb-3">Account created successfully! Please verify your email with the OTP sent.</p>
+              <p className="text-gray-400 text-xs mb-3">Redirecting to verification page...</p>
+              <a 
+                href="#/verify-otp" 
+                className="text-purple-400 hover:text-purple-300 transition underline text-sm inline-block"
+              >
+                Click here if you're not redirected automatically
+              </a>
+            </div>
+          )}
+          {error && !success && (
             <div className="mb-6 p-3 bg-red-500/20 border border-red-500/50 rounded-lg">
               <p className="text-red-400 text-sm">{error}</p>
             </div>
           )}
 
+          {!success && (
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-sm font-medium mb-2">Full Name</label>
@@ -3939,7 +3960,9 @@ const SignUpPage = () => {
               {loading ? 'Creating Account...' : 'Sign Up'}
             </button>
           </form>
+          )}
 
+          {!success && (
           <div className="mt-6 text-center">
             <p className="text-gray-400">
               Already have an account?{' '}
@@ -3948,6 +3971,7 @@ const SignUpPage = () => {
               </a>
             </p>
           </div>
+          )}
         </div>
       </div>
     </div>
