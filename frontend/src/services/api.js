@@ -37,10 +37,13 @@ api.interceptors.response.use(
 );
 
 export const authAPI = {
-  signup: async (userData) => {
-    const response = await api.post('/auth/signup', userData);
-    return response.data;
-  },
+signup: async (userData) => {
+  const response = await api.post('/auth/signup', userData);
+  if (response.data.token) {
+    localStorage.setItem('token', response.data.token);
+  }
+  return response.data;
+},
   verifyOTP: async (email, otp) => {
     const response = await api.post('/auth/verify-otp', { email, otp });
     return response.data;
