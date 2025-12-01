@@ -3615,40 +3615,56 @@ const LoginPage = () => {
     setError('');
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+ const handleSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  setError('');
 
-    try {
-      const data = await authAPI.login(formData);
-      
-      if (data.token) {
-        // Post-login redirect handling
-        const postLogin = localStorage.getItem('postLoginRedirect');
-        if (postLogin) {
-          try {
-            const { hash } = JSON.parse(postLogin) || {};
-            localStorage.removeItem('postLoginRedirect');
-            if (hash) {
-              window.location.hash = hash;
-              return;
-            }
-          } catch (e) {
-            localStorage.removeItem('postLoginRedirect');
-          }
-        }
-        window.location.hash = '#/dashboard';
-      } else {
-        setError(data.message || 'Login failed');
+  if (formData.password !== formData.confirmPassword) {
+    setError('Passwords do not match');
+    setLoading(false);
+    return;
+  }
+
+  try {
+    const data = await authAPI.signup({
+      name: formData.name,
+      email: formData.email,
+      password: formData.password
+    });
+
+    // Store email for OTP verification (token is already stored in authAPI.signup)
+    localStorage.setItem('userEmail', formData.email);
+    
+    // Show success message
+    setError('');
+    const successDiv = document.createElement('div');
+    successDiv.className = 'fixed top-4 right-4 bg-green-500/20 border border-green-500/50 rounded-lg p-4 text-green-400 z-50 animate-fade-in';
+    successDiv.innerHTML = `
+      <div class="flex items-center gap-2">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+        </svg>
+        <span>Account created! Redirecting to OTP verification...</span>
+      </div>
+    `;
+    document.body.appendChild(successDiv);
+    
+    // Redirect to OTP verification page
+    setTimeout(() => {
+      if (document.body.contains(successDiv)) {
+        document.body.removeChild(successDiv);
       }
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Network error. Please try again.');
-      console.error('Login error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+      window.location.hash = '#/verify-otp';
+    }, 1500);
+    
+  } catch (err) {
+    console.error('Registration error:', err);
+    const errorMessage = err.response?.data?.message || err.message || 'Network error. Please try again.';
+    setError(errorMessage);
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-950 text-white flex items-center justify-center px-6">
@@ -3934,6 +3950,19 @@ const OTPVerificationPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+
+  useEffect(() => {
+    const email = localStorage.getItem('userEmail');
+    if (!email) {
+      setError('Email not found. Please sign up again.');
+      setTimeout(() => {
+        window.location.hash = '#/signup';
+      }, 2000);
+    } else {
+      setUserEmail(email);
+    }
+  }, []);
 
   const handleChange = (index, value) => {
     if (isNaN(value)) return;
@@ -4032,8 +4061,9 @@ const OTPVerificationPage = () => {
               Eventora
             </span>
           </a>
-          <h1 className="text-3xl font-bold mb-2">Verify Your Email</h1>
-          <p className="text-gray-400">We've sent a 6-digit code to your email</p>
+        <h1 className="text-3xl font-bold mb-2">Verify Your Email</h1>
+<p className="text-gray-400">We've sent a 6-digit code to</p>
+<p className="text-purple-400 font-medium mt-1">{userEmail || 'your email'}</p>
         </div>
 
         <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
