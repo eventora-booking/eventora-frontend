@@ -3323,7 +3323,7 @@ const ContactPage = () => {
                 </div>
                 <div className="flex items-center gap-3">
                   <MapPin className="text-purple-400" size={20} />
-                  <span>123 TIET, Patiala, India</span>
+                  <span>TIET, Patiala, India</span>
                 </div>
               </div>
             </div>
